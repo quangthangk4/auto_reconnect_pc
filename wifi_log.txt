@@ -134,3 +134,79 @@
 [2025-11-27 02:27:51] [INFO]  (Sẽ check lại lúc 02:41:51)
 [2025-11-27 02:27:54] [INFO] 
 👋 Đã dừng script bởi người dùng
+[2025-11-27 02:39:27] [INFO] ==================================================
+[2025-11-27 02:39:27] [INFO] 🚀 WIFI AUTO-RECONNECT SCRIPT STARTED
+[2025-11-27 02:39:27] [INFO]    Expected IP: 192.168.200.0/21
+[2025-11-27 02:39:27] [INFO]    Session duration: 900s (15 phút)
+[2025-11-27 02:39:27] [INFO]    Strategy: Nếu đang có net → logout session cũ, sau đó mỗi ~15 phút chủ động logout + login để reset session.
+[2025-11-27 02:39:27] [INFO] ==================================================
+[2025-11-27 02:39:27] [INFO] ==================================================
+[2025-11-27 02:39:27] [INFO] ⚠️  ĐANG ĐỢI KẾT NỐI ĐÚNG MẠNG WIFI...
+[2025-11-27 02:39:27] [INFO]    Cần IP bắt đầu bằng: 192.168.200.0/21
+[2025-11-27 02:39:27] [INFO] ==================================================
+[2025-11-27 02:39:27] [INFO] ✅ Đã kết nối đúng mạng! IP: 192.168.200.223
+[2025-11-27 02:39:27] [INFO] 🔍 Kiểm tra kết nối ban đầu...
+[2025-11-27 02:39:27] [INFO] ✅ Đã có internet sẵn → chủ động logout session cũ.
+[2025-11-27 02:39:27] [INFO] ✅ Logout session thành công trên gateway.
+[2025-11-27 02:39:30] [SUCCESS] ✅ KẾT NỐI THÀNH CÔNG!
+[2025-11-27 02:39:30] [INFO] ✅ Login ban đầu thành công, bắt đầu vòng refresh định kỳ.
+[2025-11-27 02:39:30] [INFO] 😴 Ngủ 14 phút 0 giây trước khi refresh session...
+[2025-11-27 02:39:30] [INFO]  (Sẽ check lại lúc 02:53:30)
+[2025-11-27 02:39:33] [INFO] 
+👋 Đã dừng script bởi người dùng
+[2025-11-27 02:40:27] [INFO] ==================================================
+[2025-11-27 02:40:27] [INFO] 🚀 WIFI AUTO-RECONNECT SCRIPT STARTED
+[2025-11-27 02:40:27] [INFO]    Expected IP: 192.168.200.0/21
+[2025-11-27 02:40:27] [INFO]    Session duration: 900s (15 phút)
+[2025-11-27 02:40:27] [INFO]    Strategy: Nếu đang có net → logout session cũ, sau đó mỗi ~15 phút chủ động logout + login để reset session.
+[2025-11-27 02:40:27] [INFO] ==================================================
+[2025-11-27 02:40:27] [INFO] ==================================================
+[2025-11-27 02:40:27] [INFO] ⚠️  ĐANG ĐỢI KẾT NỐI ĐÚNG MẠNG WIFI...
+[2025-11-27 02:40:27] [INFO]    Cần IP bắt đầu bằng: 192.168.200.0/21
+[2025-11-27 02:40:27] [INFO] ==================================================
+[2025-11-27 02:40:27] [INFO] ✅ Đã kết nối đúng mạng! IP: 192.168.200.223
+[2025-11-27 02:40:27] [INFO] 🔍 Kiểm tra kết nối ban đầu...
+[2025-11-27 02:40:27] [INFO] ✅ Đã có internet sẵn → chủ động logout session cũ.
+[2025-11-27 02:40:27] [INFO] ✅ Logout session thành công trên gateway.
+[2025-11-27 02:40:29] [SUCCESS] ✅ KẾT NỐI THÀNH CÔNG!
+[2025-11-27 02:40:29] [INFO] ✅ Login ban đầu thành công, bắt đầu vòng refresh định kỳ.
+[2025-11-27 02:40:29] [INFO] 😴 Ngủ 0 phút 10 giây trước khi refresh session...
+[2025-11-27 02:40:29] [INFO]  (Sẽ check lại lúc 02:40:39)
+[2025-11-27 02:40:39] [INFO] ⏰ Đến hạn refresh session → logout + login lại.
+[2025-11-27 02:40:39] [INFO] ✅ Logout session thành công trên gateway.
+[2025-11-27 02:40:40] [SUCCESS] ✅ KẾT NỐI THÀNH CÔNG!
+[2025-11-27 02:40:40] [INFO] ⏱ Thời gian từ logout đến lúc có internet: 0.42 giây
+[2025-11-27 02:40:40] [INFO] 😴 Ngủ 0 phút 10 giây trước khi refresh session...
+[2025-11-27 02:40:40] [INFO]  (Sẽ check lại lúc 02:40:50)
+[2025-11-27 02:40:50] [INFO] ⏰ Đến hạn refresh session → logout + login lại.
+[2025-11-27 02:40:50] [INFO] ✅ Logout session thành công trên gateway.
+[2025-11-27 02:40:50] [SUCCESS] ✅ KẾT NỐI THÀNH CÔNG!
+[2025-11-27 02:40:50] [INFO] ⏱ Thời gian từ logout đến lúc có internet: 0.43 giây
+[2025-11-27 02:40:50] [INFO] 😴 Ngủ 0 phút 10 giây trước khi refresh session...
+[2025-11-27 02:40:50] [INFO]  (Sẽ check lại lúc 02:41:00)
+[2025-11-27 02:41:00] [INFO] ⏰ Đến hạn refresh session → logout + login lại.
+[2025-11-27 02:41:00] [INFO] ✅ Logout session thành công trên gateway.
+[2025-11-27 02:41:01] [SUCCESS] ✅ KẾT NỐI THÀNH CÔNG!
+[2025-11-27 02:41:01] [INFO] ⏱ Thời gian từ logout đến lúc có internet: 0.52 giây
+[2025-11-27 02:41:01] [INFO] 😴 Ngủ 0 phút 10 giây trước khi refresh session...
+[2025-11-27 02:41:01] [INFO]  (Sẽ check lại lúc 02:41:11)
+[2025-11-27 02:41:11] [INFO] ⏰ Đến hạn refresh session → logout + login lại.
+[2025-11-27 02:41:11] [INFO] ✅ Logout session thành công trên gateway.
+[2025-11-27 02:41:11] [SUCCESS] ✅ KẾT NỐI THÀNH CÔNG!
+[2025-11-27 02:41:11] [INFO] ⏱ Thời gian từ logout đến lúc có internet: 0.37 giây
+[2025-11-27 02:41:11] [INFO] 😴 Ngủ 0 phút 10 giây trước khi refresh session...
+[2025-11-27 02:41:11] [INFO]  (Sẽ check lại lúc 02:41:21)
+[2025-11-27 02:41:21] [INFO] ⏰ Đến hạn refresh session → logout + login lại.
+[2025-11-27 02:41:21] [INFO] ✅ Logout session thành công trên gateway.
+[2025-11-27 02:41:22] [SUCCESS] ✅ KẾT NỐI THÀNH CÔNG!
+[2025-11-27 02:41:22] [INFO] ⏱ Thời gian từ logout đến lúc có internet: 0.43 giây
+[2025-11-27 02:41:22] [INFO] 😴 Ngủ 0 phút 10 giây trước khi refresh session...
+[2025-11-27 02:41:22] [INFO]  (Sẽ check lại lúc 02:41:32)
+[2025-11-27 02:41:32] [INFO] ⏰ Đến hạn refresh session → logout + login lại.
+[2025-11-27 02:41:32] [INFO] ✅ Logout session thành công trên gateway.
+[2025-11-27 02:41:32] [SUCCESS] ✅ KẾT NỐI THÀNH CÔNG!
+[2025-11-27 02:41:32] [INFO] ⏱ Thời gian từ logout đến lúc có internet: 0.37 giây
+[2025-11-27 02:41:32] [INFO] 😴 Ngủ 0 phút 10 giây trước khi refresh session...
+[2025-11-27 02:41:32] [INFO]  (Sẽ check lại lúc 02:41:42)
+[2025-11-27 02:41:36] [INFO] 
+👋 Đã dừng script bởi người dùng

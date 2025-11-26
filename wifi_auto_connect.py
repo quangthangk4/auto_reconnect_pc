@@ -20,7 +20,6 @@ import ipaddress
 
 
 CONFIG = {
-    "client_mac": "",
     # Thông tin đăng nhập (từ captive portal)
     "username": "awing15-15",
     "password": "Awing15-15@2023",
@@ -48,24 +47,6 @@ import os
 
 # Log file path (cùng thư mục với script)
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wifi_log.txt")
-
-def get_wifi_mac():
-    result = subprocess.run(
-        ["getmac", "/v", "/fo", "list"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="ignore"
-    )
-    sections = result.stdout.split("\n\n")
-    for sec in sections:
-        if "Wi-Fi" in sec or "Wireless" in sec:
-            for line in sec.splitlines():
-                if "Physical Address" in line:
-                    mac = line.split(":", 1)[1].strip()
-                    mac_colon = mac.replace("-", ":")
-                    return mac_colon
-    return None
 
 def log(message, level="INFO"):
     """In log với timestamp - ghi ra cả console (nếu có) và file"""
@@ -245,17 +226,12 @@ def login():
     
 
 def awing_logout():
-    """Logout session Awing trên gateway bằng MAC hiện tại."""
     try:
         gateway_ip = "192.168.200.1"  # Default Gateway của bạn
         logout_url = f"http://{gateway_ip}/goform/logout"
-        params = {
-            "mac": CONFIG["client_mac"]  # dùng luôn MAC trong CONFIG
-        }
 
         resp = requests.get(
             logout_url,
-            params=params,
             headers=HEADERS,
             timeout=5
         )
@@ -276,19 +252,10 @@ def awing_logout():
 def main():
     log("=" * 50)
     log("🚀 WIFI AUTO-RECONNECT SCRIPT STARTED")
-    log(f"   MAC Address: {CONFIG['client_mac']}")
     log(f"   Expected IP: {NETWORK}")
     log(f"   Session duration: {CONFIG['session_duration']}s (15 phút)")
     log("   Strategy: Nếu đang có net → logout session cũ, sau đó mỗi ~15 phút chủ động logout + login để reset session.")
     log("=" * 50)
-
-
-    mac_colon = get_wifi_mac()
-    if mac_colon:
-        CONFIG["client_mac"] = mac_colon
-        log(f"🔧 Auto-detected MAC: {mac_colon}")
-    else:
-        log("⚠️ Không tự lấy được MAC, dùng giá trị hard-code trong CONFIG.", "WARNING")
 
     
     # Bước 0: Đợi kết nối đúng mạng
@@ -373,9 +340,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--test":
         log("🧪 Chạy test kết nối một lần...")
         login()
-    elif len(sys.argv) > 1 and sys.argv[1] == "--mac":
-        log("🧪 Chạy test get mac...")
-        print(get_wifi_mac())
     elif len(sys.argv) > 1 and sys.argv[1] == "--disconnect":
         log("🧪 Chạy test disconnect...")
         awing_logout()
