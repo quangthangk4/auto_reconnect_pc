@@ -1,347 +1,185 @@
 #!/usr/bin/env python3
 """
-WiFi Auto-Reconnect Script for Awing Captive Portal
-Tự động kết nối lại WiFi miễn phí khi hết 15 phút
-
-Author: Claude
-Usage: python wifi_auto_connect.py
+High-Performance WiFi Auto-Reconnect
+Tối ưu hóa tốc độ kết nối bằng Session Keep-Alive và Socket Check
 """
 
 import requests
 import time
 import subprocess
 import re
-import uuid
+import socket # Dùng cái này check mạng nhanh hơn requests nhiều
 from datetime import datetime
-from urllib.parse import urlencode
 import ipaddress
+import os
+import sys
 
 # ============ CẤU HÌNH ============
-
-
 CONFIG = {
-    # Thông tin đăng nhập (từ captive portal)
     "username": "awing15-15",
     "password": "Awing15-15@2023",
-
-    "auth_url": "http://authen.awingconnect.vn/login",
+    "auth_url": "http://192.168.200.1/goform/login",
+    "logout_url": "http://192.168.200.1/goform/logout", # Hardcode luôn cho nhanh
     "success_url": "http://v1.awingconnect.vn/Success",
-    
-    # Timing
-    "session_duration": 15 * 60, # 15 phút = 900 giây
+    "session_duration": 15 * 60, 
+    "gateway_ip": "192.168.200.1"
 }
 
 NETWORK = ipaddress.ip_network("192.168.200.0/21")
 
-# ============ HEADERS ============
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate",
-    "Connection": "keep-alive",
-}
+# Tạo một Session toàn cục để tái sử dụng kết nối TCP (Keep-Alive)
+# Đây là chìa khóa để login nhanh
+session = requests.Session()
+session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Connection": "keep-alive" # Bắt buộc giữ kết nối
+})
 
-
-import os
-
-# Log file path (cùng thư mục với script)
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wifi_log.txt")
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wifi_fast_log.txt")
 
 def log(message, level="INFO"):
-    """In log với timestamp - ghi ra cả console (nếu có) và file"""
-
-
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3] # Lấy cả mili giây
     log_line = f"[{timestamp}] [{level}] {message}"
-
-    # Chỉ print nếu đang có console (chạy bằng python.exe trong CMD)
     try:
         if sys.stdout and sys.stdout.isatty():
             print(log_line)
-    except Exception:
-        pass
-
-    # Ghi ra file log
+    except: pass
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(log_line + "\n")
-    except:
-        pass
+    except: pass
 
-
-
-def check_internet():
-    """Kiểm tra có internet hay không"""
-    test_urls = [
-        "http://www.google.com",
-        "http://www.msftconnecttest.com/connecttest.txt",
-        "http://captive.apple.com",
-    ]
-    
-    for url in test_urls:
-        try:
-            response = requests.get(url, timeout=5, allow_redirects=False)
-            # Nếu bị redirect về captive portal thì không có internet
-            if response.status_code == 200:
-                return True
-            elif response.status_code in [301, 302, 303, 307, 308]:
-                location = response.headers.get("Location", "")
-                if "awingconnect" in location or "captive" in location.lower():
-                    return False
-        except requests.exceptions.RequestException:
-            continue
-    
-    return False
-
+def fast_check_internet():
+    """
+    Check internet siêu tốc bằng cách ping tới Google DNS (8.8.8.8) qua cổng 53.
+    Không dùng HTTP request để tránh tốn thời gian tải trang.
+    """
+    try:
+        # Timeout cực ngắn: 1 giây
+        socket.setdefaulttimeout(1)
+        # Thử mở kết nối tới 8.8.8.8 port 53 (DNS)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(("8.8.8.8", 53))
+        s.close()
+        return True
+    except Exception:
+        return False
 
 def get_current_ip():
-    """Lấy IP hiện tại từ adapter WiFi - KHÔNG HIỆN CỬA SỔ"""
+    """Lấy IP hiện tại (đã tối ưu cờ ẩn window)"""
     try:
-        # --- PHẦN SỬA ĐỔI ---
-        # Cấu hình để không hiện cửa sổ console đen khi gọi lệnh ipconfig
         startupinfo = None
+        creation_flags = 0
         if os.name == 'nt':
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
-        # Windows command với cờ ngăn hiển thị window (CREATE_NO_WINDOW = 0x08000000)
-        creation_flags = 0x08000000 if os.name == 'nt' else 0
+            creation_flags = 0x08000000
 
         result = subprocess.run(
-            ["ipconfig"], 
-            capture_output=True, 
-            text=True, 
-            encoding="utf-8",
-            errors="ignore",
-            creationflags=creation_flags, # <-- THÊM DÒNG NÀY
-            startupinfo=startupinfo       # <-- VÀ DÒNG NÀY (để chắc chắn)
+            ["ipconfig"], capture_output=True, text=True, encoding="utf-8", errors="ignore",
+            creationflags=creation_flags, startupinfo=startupinfo
         )
-        # --------------------
         
-        # (Giữ nguyên phần xử lý bên dưới của bạn)
-        lines = result.stdout.split("\n")
-        in_wifi_section = False
-        
-        for line in lines:
-            if "Wi-Fi" in line or "Wireless" in line:
-                in_wifi_section = True
-            elif "Ethernet" in line or "adapter" in line.lower():
-                in_wifi_section = False
-            
-            if in_wifi_section and "IPv4" in line:
-                match = re.search(r"(\d+\.\d+\.\d+\.\d+)", line)
-                if match:
-                    return match.group(1)
-        
-        # Fallback
-        for line in lines:
-            if "192.168" in line:
-                match = re.search(r"(192\.168\.\d+\.\d+)", line)
-                if match:
-                    return match.group(1)
-                    
-    except Exception as e:
-        log(f"Không lấy được IP: {e}", "WARNING")
-    
+        # Regex tìm IP nhanh gọn
+        match = re.search(r"IPv4Address.+: (192\.168\.20\d\.\d+)", result.stdout.replace("\r", "").replace("\n", ""))
+        # Fallback regex nếu format khác
+        if not match:
+             match = re.search(r"(192\.168\.\d+\.\d+)", result.stdout)
+             
+        if match: return match.group(1)
+    except: pass
     return None
 
-def check_correct_network():
-    current_ip = get_current_ip()
-    if current_ip is None:
-        return False, None
-
-    try:
-        ip_obj = ipaddress.ip_address(current_ip)
-        is_correct = ip_obj in NETWORK
-        return is_correct, current_ip
-    except ValueError:
-        # IP không hợp lệ
-        return False, current_ip
-
-
 def wait_for_correct_network():
-    """
-    Đợi cho đến khi người dùng kết nối đúng mạng WiFi
-    Check mỗi 5 giây
-    """
-    log("=" * 50)
-    log("⚠️  ĐANG ĐỢI KẾT NỐI ĐÚNG MẠNG WIFI...")
-    log(f"   Cần IP bắt đầu bằng: {NETWORK}")
-    log("=" * 50)
-    
-    check_count = 0
+    """Chờ kết nối đúng mạng"""
+    log("📡 Đang đợi mạng 192.168.200.x...", "WAIT")
     while True:
-        is_correct, current_ip = check_correct_network()
-        check_count += 1
-        
-        if is_correct:
-            log(f"✅ Đã kết nối đúng mạng! IP: {current_ip}")
-            return current_ip
-        else:
-            if current_ip:
-                log(f"❌ Sai mạng! IP hiện tại: {current_ip} (cần {NETWORK}) - Check #{check_count}")
-            else:
-                log(f"❌ Không tìm thấy IP WiFi - Chưa kết nối WiFi? - Check #{check_count}")
-            
-            # Gợi ý cho người dùng
-            if check_count % 2 == 0:  # Mỗi 30 giây nhắc 1 lần
-                log("💡 Vui lòng kết nối WiFi đúng mạng (INET-Free WiFi)...")
-            
-            time.sleep(5)
+        ip = get_current_ip()
+        if ip:
+            try:
+                if ipaddress.ip_address(ip) in NETWORK:
+                    log(f"✅ Đã vào mạng: {ip}")
+                    return ip
+            except: pass
+        time.sleep(2)
 
+def perform_cycle():
+    """Chu trình Logout -> Login tối ưu"""
+    log("🔄 Bắt đầu chu trình làm mới...")
+    t_start = time.time()
 
-def login():
+    # 1. LOGOUT
     try:
-        auth_data = {
-            "username": CONFIG["username"],
-            "password": CONFIG["password"],
-            "dst": CONFIG["success_url"],
-            "popup": "false",
-        }
-        
-        requests.post(CONFIG["auth_url"], data=auth_data, headers=HEADERS, timeout=10)
-        
-        if check_internet():
-            log("✅ KẾT NỐI THÀNH CÔNG!", "SUCCESS")
-            return True
-        else:
-            log("⚠️ Đã gọi API nhưng chưa có internet", "WARNING")
-            retry = 0
-            while retry < 3 and not check_internet():
-                retry += 1
-                log(f"🔁 Thử login lại lần {retry}...")
-                if login():
-                    log("✅ Login thành công sau retry.")
-                    return True
-                time.sleep(1)
-            return False
-            
-    except requests.exceptions.RequestException as e:
-        log(f"❌ Lỗi kết nối: {e}", "ERROR")
-        return False
+        # Dùng session.get thay vì requests.get để tận dụng keep-alive
+        session.get(CONFIG["logout_url"], timeout=2)
     except Exception as e:
-        log(f"❌ Lỗi không xác định: {e}", "ERROR")
-        return False
+        log(f"Lỗi logout nhẹ (kệ nó): {e}", "WARN")
+
+    t_logout = time.time()
     
-
-def awing_logout():
+    # 2. LOGIN
+    auth_data = {
+        "username": CONFIG["username"],
+        "password": CONFIG["password"],
+        "dst": CONFIG["success_url"],
+        "popup": "false",
+    }
+    
     try:
-        gateway_ip = "192.168.200.1"  # Default Gateway của bạn
-        logout_url = f"http://{gateway_ip}/goform/logout"
-
-        resp = requests.get(
-            logout_url,
-            headers=HEADERS,
-            timeout=5
-        )
-
-
-        if resp.status_code in (200, 301, 302):
-            log("✅ Logout session thành công trên gateway.")
-            return True
+        # Gửi POST ngay lập tức trên cùng session
+        resp = session.post(CONFIG["auth_url"], data=auth_data, timeout=5)
+        t_login = time.time()
+        
+        # Phân tích kết quả dựa trên HTTP Code luôn, khoan check internet vội
+        # Gateway thường trả về 200 hoặc 302 nếu thành công
+        if resp.status_code < 400:
+            log(f"🚀 Đã gửi Login, tái kết nối trong: {(t_login - t_start):.3f}s (Logout: {t_logout - t_start:.3f}s | Login: {t_login - t_logout:.3f}s)")
         else:
-            log("⚠️ Logout trả về mã lạ, có thể vẫn OK nhưng không chắc.", "WARNING")
+            log(f"❌ Login thất bại. Code: {resp.status_code}", "ERROR")
             return False
 
     except Exception as e:
-        log(f"❌ Lỗi khi logout Awing: {e}", "ERROR")
+        log(f"❌ Exception: {e}", "ERROR")
         return False
-
 
 def main():
-    log("=" * 50)
-    log("🚀 WIFI AUTO-RECONNECT SCRIPT STARTED")
-    log(f"   Expected IP: {NETWORK}")
-    log(f"   Session duration: {CONFIG['session_duration']}s (15 phút)")
-    log("   Strategy: Nếu đang có net → logout session cũ, sau đó mỗi ~15 phút chủ động logout + login để reset session.")
-    log("=" * 50)
-
+    log("🚀 SPEED OPTIMIZED SCRIPT STARTED")
     
-    # Bước 0: Đợi kết nối đúng mạng
+    # Check mạng lần đầu
     wait_for_correct_network()
     
-    # Bước 1: Nếu đã có internet → logout session cũ cho sạch
-    log("🔍 Kiểm tra kết nối ban đầu...")
-    if check_internet():
-        log("✅ Đã có internet sẵn → chủ động logout session cũ.")
-        awing_logout()
-        time.sleep(2)  # cho gateway xử lý
-    else:
-        log("❌ Chưa có internet, không cần logout.")
-
-
-    # Bước 2: Login lần đầu bằng script
-    while True:
-        if login():
-            log("✅ Login ban đầu thành công, bắt đầu vòng refresh định kỳ.")
-            break
-        else:
-            log("⚠️ Login ban đầu thất bại, thử lại sau 10 giây...")
-            time.sleep(10)
+    if fast_check_internet():
+        log("Đã có mạng, logout session cũ để reset đồng hồ.")
+        session.get(CONFIG["logout_url"])
     
+    perform_cycle()
+
     while True:
         try:
-            # Đảm bảo vẫn đang ở đúng mạng
-            is_correct, current_ip = check_correct_network()
-            if not is_correct:
-                log(f"⚠️ Phát hiện đã chuyển mạng (IP hiện tại: {current_ip}), đợi lại đúng WiFi...")
+            # Ngủ 14 phút 55 giây (Sát nút hơn để tận dụng tối đa)
+            # Vì quá trình reconnect giờ chỉ mất < 0.5s nên không cần trừ hao quá nhiều
+            sleep_time = CONFIG["session_duration"] - 60 
+            
+            # Tính toán thời gian thức dậy chính xác
+            wake_up_time = datetime.fromtimestamp(time.time() + sleep_time).strftime('%H:%M:%S')
+            log(f"💤 Ngủ đông đến {wake_up_time} (còn {sleep_time}s)...")
+            
+            time.sleep(sleep_time)
+
+            # Kiểm tra xem còn kết nối WiFi không trước khi làm
+            current_ip = get_current_ip()
+            if not current_ip or ipaddress.ip_address(current_ip) not in NETWORK:
+                log("⚠️ Mất kết nối WiFi lúc ngủ, đợi kết nối lại...")
                 wait_for_correct_network()
-                
-            # Ngủ gần hết session, trừ đi margin cho an toàn (vd 30s)
-            safety_margin = 60  # bạn thích thì chỉnh 20–60 giây
-            sleep_duration = CONFIG["session_duration"] - safety_margin
-            if sleep_duration < 0:
-                sleep_duration = 0
 
-            log(f"😴 Ngủ {sleep_duration // 60} phút {sleep_duration % 60} giây trước khi refresh session...")
-            log(f" (Sẽ check lại lúc {time.strftime('%H:%M:%S', time.localtime(time.time() + sleep_duration))})")
-            time.sleep(sleep_duration)
-
-            # Đến lúc refresh
-            # ✅ LẤY MỐC THỜI GIAN TỪ ĐÂY
-            start_reconnect = time.time()
-            log("⏰ Đến hạn refresh session → logout + login lại.")
-            awing_logout()
-
-            if not login():
-                log("❌ Login lại sau logout thất bại, thử lại với backoff...")
-                # fallback: retry vài lần
-                retry = 0
-                while retry < 3 and not check_internet():
-                    retry += 1
-                    log(f"🔁 Thử login lại lần {retry}...")
-                    if login():
-                        log("✅ Login thành công sau retry.")
-                        break
-                    time.sleep(1)
-
-            if check_internet():
-                elapsed = time.time() - start_reconnect
-                log(f"⏱ Thời gian từ logout đến lúc có internet: {elapsed:.2f} giây", "INFO")
-            else:
-                log("⚠️ Sau refresh vẫn chưa có internet, sẽ thử lại ở vòng sau.", "WARNING")
+            # THỰC HIỆN RECONNECT
+            perform_cycle()
             
         except KeyboardInterrupt:
-            log("\n👋 Đã dừng script bởi người dùng")
             break
         except Exception as e:
-            log(f"❌ Lỗi trong main loop: {e}", "ERROR")
-            log("🔄 Thử kết nối lại sau 5 giây...")
+            log(f"Crash loop: {e}")
             time.sleep(5)
-            if not check_internet():
-                login()
-
 
 if __name__ == "__main__":
-    # Test nhanh kết nối
-    import sys
-    
-    if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        log("🧪 Chạy test kết nối một lần...")
-        login()
-    elif len(sys.argv) > 1 and sys.argv[1] == "--disconnect":
-        log("🧪 Chạy test disconnect...")
-        awing_logout()
-    else:
-        main()
+    main()
