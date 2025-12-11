@@ -1,72 +1,57 @@
 #!/usr/bin/env python3
 """
-High-Performance WiFi Auto-Reconnect
-Tối ưu hóa tốc độ kết nối bằng Session Keep-Alive và Socket Check
+High-Performance WiFi Auto-Reconnect V2
+Cơ chế: Dynamic Password Harvesting (Tự động lấy mật khẩu động từ API)
 """
 
 import requests
 import time
 import subprocess
 import re
-import socket # Dùng cái này check mạng nhanh hơn requests nhiều
+import socket
 from datetime import datetime
 import ipaddress
-import os
+import os,html
 import sys
 
 # ============ CẤU HÌNH ============
 CONFIG = {
-    "username": "awing15-15",
-    "password": "Awing15-15@2023",
-    "auth_url": "http://192.168.200.1/goform/login",
-    "logout_url": "http://192.168.200.1/goform/logout", # Hardcode luôn cho nhanh
-    "success_url": "http://v1.awingconnect.vn/Success",
-    "session_duration": 15 * 60, 
+    # Username này thường cố định theo thiết bị/account
+    "username": "awing15-15", 
+    # Password sẽ được lấy tự động, không cần hardcode nữa
+    
+    # URL Flow
+    "trigger_url": "http://authen.awingconnect.vn/login", # Link mồi để lấy redirect
+    "api_verify_url": "http://v1.awingconnect.vn/Home/VerifyUrl", # Link lấy password
+    "auth_url": "http://authen.awingconnect.vn/login", # Link login cuối cùng
+    "logout_url": "http://192.168.200.1/goform/logout",
+    "success_check_url": "http://v1.awingconnect.vn/Success",
+    
+    "session_duration": 15 * 60, # 15 phút
     "gateway_ip": "192.168.200.1"
 }
 
 NETWORK = ipaddress.ip_network("192.168.200.0/21")
 
-# Tạo một Session toàn cục để tái sử dụng kết nối TCP (Keep-Alive)
-# Đây là chìa khóa để login nhanh
+# Session toàn cục
 session = requests.Session()
 session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Connection": "keep-alive" # Bắt buộc giữ kết nối
+    "Connection": "keep-alive",
+    "X-Requested-With": "XMLHttpRequest", # Quan trọng để giả lập gọi API từ JS
+    "Accept": "*/*"
 })
 
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wifi_fast_log.txt")
-
 def log(message, level="INFO"):
-    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3] # Lấy cả mili giây
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     log_line = f"[{timestamp}] [{level}] {message}"
     try:
         if sys.stdout and sys.stdout.isatty():
             print(log_line)
     except: pass
-    try:
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(log_line + "\n")
-    except: pass
-
-def fast_check_internet():
-    """
-    Check internet siêu tốc bằng cách ping tới Google DNS (8.8.8.8) qua cổng 53.
-    Không dùng HTTP request để tránh tốn thời gian tải trang.
-    """
-    try:
-        # Timeout cực ngắn: 1 giây
-        socket.setdefaulttimeout(1)
-        # Thử mở kết nối tới 8.8.8.8 port 53 (DNS)
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect(("8.8.8.8", 53))
-        s.close()
-        return True
-    except Exception:
-        return False
 
 def get_current_ip():
-    """Lấy IP hiện tại (đã tối ưu cờ ẩn window)"""
+    """Lấy IP để check xem đã connect vào WiFi chưa"""
     try:
         startupinfo = None
         creation_flags = 0
@@ -79,72 +64,134 @@ def get_current_ip():
             ["ipconfig"], capture_output=True, text=True, encoding="utf-8", errors="ignore",
             creationflags=creation_flags, startupinfo=startupinfo
         )
-        
-        # Regex tìm IP nhanh gọn
         match = re.search(r"IPv4Address.+: (192\.168\.20\d\.\d+)", result.stdout.replace("\r", "").replace("\n", ""))
-        # Fallback regex nếu format khác
         if not match:
              match = re.search(r"(192\.168\.\d+\.\d+)", result.stdout)
-             
         if match: return match.group(1)
     except: pass
     return None
 
 def wait_for_correct_network():
-    """Chờ kết nối đúng mạng"""
     log("📡 Đang đợi mạng 192.168.200.x...", "WAIT")
     while True:
         ip = get_current_ip()
         if ip:
             try:
                 if ipaddress.ip_address(ip) in NETWORK:
-                    log(f"✅ Đã vào mạng: {ip}")
+                    log(f"✅ Đã kết nối WiFi IP: {ip}")
                     return ip
             except: pass
         time.sleep(2)
 
-def perform_cycle():
-    """Chu trình Logout -> Login tối ưu"""
-    log("🔄 Bắt đầu chu trình làm mới...")
-    t_start = time.time()
-
-    # 1. LOGOUT
+def fast_check_internet():
     try:
-        # Dùng session.get thay vì requests.get để tận dụng keep-alive
-        session.get(CONFIG["logout_url"], timeout=2)
-    except Exception as e:
-        log(f"Lỗi logout nhẹ (kệ nó): {e}", "WARN")
+        socket.setdefaulttimeout(1)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(("8.8.8.8", 53))
+        s.close()
+        return True
+    except Exception:
+        return False
 
-    t_logout = time.time()
+def get_dynamic_password():
+    """
+    Hàm quan trọng nhất:
+    1. Truy cập trang login để lấy Redirect URL (chứa Session ID, MAC, IP).
+    2. Gọi API VerifyUrl để lấy JSON.
+    3. Parse JSON lấy password động.
+    """
+    try:
+        # BƯỚC 1: GET REQUEST để lấy Session Cookie và Redirect URL
+        # Gateway sẽ redirect từ authen -> v1.awingconnect.vn với 1 đống tham số
+        log("🕵️ Đang lấy Session params...")
+        resp = session.get("http://authen.awingconnect.vn/goform/login", allow_redirects=False)
+        html_body = resp.content.decode("utf-8", errors="ignore")
+
+        m = re.search(r'url=([^"\'> ]+)', html_body)
+        if not m:
+            log("❌ Không tìm thấy redirect URL", "ERROR")
+            return
+
+        full_login_url = html.unescape(m.group(1))
+
+        log(f"➡️ Redirect URL: {full_login_url}")
+        
+        # BƯỚC 2: Gọi API VerifyUrl
+        # Cần set Referer là cái URL dài ngoằng vừa lấy được thì Server mới chịu trả lời
+        session.headers.update({"Referer": full_login_url})
+        
+        log("⚡ Gọi API VerifyUrl để lấy Password...")
+        resp_api = session.post(CONFIG["api_verify_url"], json={}, timeout=5)
+        
+        if resp_api.status_code != 200:
+            log(f"❌ API Error: {resp_api.status_code}", "ERROR")
+            return None
+
+        # BƯỚC 3: Parse JSON lấy Password
+        data = resp_api.json()
+        
+        # Password nằm trong chuỗi HTML tại key ['captiveContext']['contentAuthenForm']
+        html_content = data.get("captiveContext", {}).get("contentAuthenForm", "")
+        
+        # Dùng Regex móc password ra: name="password" value="XXXXXXXX"
+        pass_match = re.search(r'name="password"\s+value="([^"]+)"', html_content)
+        
+        if pass_match:
+            extracted_pass = pass_match.group(1)
+            log(f"🔓 Đã trích xuất Password động: {extracted_pass}")
+            return extracted_pass
+        else:
+            log("❌ Không tìm thấy pattern password trong JSON trả về.", "ERROR")
+            return None
+
+    except Exception as e:
+        log(f"❌ Lỗi khi lấy dynamic password: {e}", "ERROR")
+        return None
+
+def perform_login_cycle():
+    t_start = time.time()
     
-    # 2. LOGIN
+    # 1. Logout (Optional nhưng tốt để clean session cũ)
+    try:
+        session.get(CONFIG["logout_url"], timeout=1)
+    except: pass
+
+
+    # 2. Lấy Password động
+    dynamic_password = get_dynamic_password()
+    
+    if not dynamic_password:
+        log("⛔ Không lấy được mật khẩu, hủy login.", "ERROR")
+        return False
+
+    # 3. Gửi Request Login cuối cùng
     auth_data = {
         "username": CONFIG["username"],
-        "password": CONFIG["password"],
-        "dst": CONFIG["success_url"],
+        "password": dynamic_password, # Sử dụng pass vừa lấy
+        "dst": CONFIG["success_check_url"],
         "popup": "false",
     }
-    
+
     try:
-        # Gửi POST ngay lập tức trên cùng session
-        resp = session.post(CONFIG["auth_url"], data=auth_data, timeout=5)
-        t_login = time.time()
+        # Reset Referer về mặc định hoặc authen
+        session.headers.update({"Referer": "http://v1.awingconnect.vn/"})
         
-        # Phân tích kết quả dựa trên HTTP Code luôn, khoan check internet vội
-        # Gateway thường trả về 200 hoặc 302 nếu thành công
+        resp = session.post(CONFIG["auth_url"], data=auth_data, timeout=5)
+        
+        # Check kết quả (302 redirect hoặc 200 OK trả về trang Success)
         if resp.status_code < 400:
-            log(f"🚀 Đã gửi Login, tái kết nối trong: {(t_login - t_start):.3f}s (Logout: {t_logout - t_start:.3f}s | Login: {t_login - t_logout:.3f}s)")
+            duration = time.time() - t_start
+            log(f"🚀 LOGIN THÀNH CÔNG! Tổng thời gian: {duration:.3f}s")
+            return True
         else:
-            log(f"❌ Login thất bại. Code: {resp.status_code}", "ERROR")
+            log(f"❌ Login thất bại. HTTP Code: {resp.status_code}", "ERROR")
             return False
 
     except Exception as e:
-        log(f"❌ Exception: {e}", "ERROR")
+        log(f"❌ Exception Login: {e}", "ERROR")
         return False
 
 def main():
-    log("🚀 SPEED OPTIMIZED SCRIPT STARTED")
-    
     # Check mạng lần đầu
     wait_for_correct_network()
     
@@ -152,7 +199,7 @@ def main():
         log("Đã có mạng, logout session cũ để reset đồng hồ.")
         session.get(CONFIG["logout_url"])
     
-    perform_cycle()
+    perform_login_cycle()
 
     while True:
         try:
@@ -173,7 +220,7 @@ def main():
                 wait_for_correct_network()
 
             # THỰC HIỆN RECONNECT
-            perform_cycle()
+            perform_login_cycle()
             
         except KeyboardInterrupt:
             break
