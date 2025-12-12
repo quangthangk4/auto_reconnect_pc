@@ -31,8 +31,6 @@ CONFIG = {
     "gateway_ip": "192.168.200.1"
 }
 
-NETWORK = ipaddress.ip_network("192.168.200.0/21")
-
 # Session toàn cục
 session = requests.Session()
 session.headers.update({
@@ -49,49 +47,6 @@ def log(message, level="INFO"):
         if sys.stdout and sys.stdout.isatty():
             print(log_line)
     except: pass
-
-def get_current_ip():
-    """Lấy IP để check xem đã connect vào WiFi chưa"""
-    try:
-        startupinfo = None
-        creation_flags = 0
-        if os.name == 'nt':
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            creation_flags = 0x08000000
-
-        result = subprocess.run(
-            ["ipconfig"], capture_output=True, text=True, encoding="utf-8", errors="ignore",
-            creationflags=creation_flags, startupinfo=startupinfo
-        )
-        match = re.search(r"IPv4Address.+: (192\.168\.20\d\.\d+)", result.stdout.replace("\r", "").replace("\n", ""))
-        if not match:
-             match = re.search(r"(192\.168\.\d+\.\d+)", result.stdout)
-        if match: return match.group(1)
-    except: pass
-    return None
-
-def wait_for_correct_network():
-    log("📡 Đang đợi mạng 192.168.200.x...", "WAIT")
-    while True:
-        ip = get_current_ip()
-        if ip:
-            try:
-                if ipaddress.ip_address(ip) in NETWORK:
-                    log(f"✅ Đã kết nối WiFi IP: {ip}")
-                    return ip
-            except: pass
-        time.sleep(2)
-
-def fast_check_internet():
-    try:
-        socket.setdefaulttimeout(1)
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect(("8.8.8.8", 53))
-        s.close()
-        return True
-    except Exception:
-        return False
 
 def get_dynamic_password():
     """
@@ -192,33 +147,20 @@ def perform_login_cycle():
         return False
 
 def main():
-    # Check mạng lần đầu
-    wait_for_correct_network()
-    
-    if fast_check_internet():
-        log("Đã có mạng, logout session cũ để reset đồng hồ.")
-        session.get(CONFIG["logout_url"])
-    
     perform_login_cycle()
 
     while True:
         try:
-            # Ngủ 14 phút 55 giây (Sát nút hơn để tận dụng tối đa)
             # Vì quá trình reconnect giờ chỉ mất < 0.5s nên không cần trừ hao quá nhiều
             sleep_time = CONFIG["session_duration"] - 60 
             
             # Tính toán thời gian thức dậy chính xác
             wake_up_time = datetime.fromtimestamp(time.time() + sleep_time).strftime('%H:%M:%S')
             log(f"💤 Ngủ đông đến {wake_up_time} (còn {sleep_time}s)...")
+            log(f"="*50)
             
             time.sleep(sleep_time)
-
-            # Kiểm tra xem còn kết nối WiFi không trước khi làm
-            current_ip = get_current_ip()
-            if not current_ip or ipaddress.ip_address(current_ip) not in NETWORK:
-                log("⚠️ Mất kết nối WiFi lúc ngủ, đợi kết nối lại...")
-                wait_for_correct_network()
-
+            
             # THỰC HIỆN RECONNECT
             perform_login_cycle()
             
