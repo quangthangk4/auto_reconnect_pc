@@ -36,6 +36,7 @@ session = requests.Session()
 session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Connection": "keep-alive",
+    "Host":"authen.awingconnect.vn",
     "X-Requested-With": "XMLHttpRequest", # Quan trọng để giả lập gọi API từ JS
     "Accept": "*/*"
 })
@@ -49,59 +50,79 @@ def log(message, level="INFO"):
     except: pass
 
 def get_dynamic_password():
-    """
-    Hàm quan trọng nhất:
-    1. Truy cập trang login để lấy Redirect URL (chứa Session ID, MAC, IP).
-    2. Gọi API VerifyUrl để lấy JSON.
-    3. Parse JSON lấy password động.
-    """
     try:
-        # BƯỚC 1: GET REQUEST để lấy Session Cookie và Redirect URL
-        # Gateway sẽ redirect từ authen -> v1.awingconnect.vn với 1 đống tham số
-        log("🕵️ Đang lấy Session params...")
-        resp = session.get("http://authen.awingconnect.vn/goform/login", allow_redirects=False)
+        # --- BƯỚC 1: Lấy Redirect URL từ Gateway ---
+        # Gateway IP: 192.168.200.1
+        log("🕵️ Đang lấy Session params từ Gateway...")
+        
+        # Gọi thẳng vào IP Gateway để tránh lỗi DNS
+        resp = session.get("http://192.168.200.1/goform/login", allow_redirects=False, timeout=5)
         html_body = resp.content.decode("utf-8", errors="ignore")
 
+        # Tìm URL redirect
         m = re.search(r'url=([^"\'> ]+)', html_body)
         if not m:
-            log("❌ Không tìm thấy redirect URL", "ERROR")
-            return
-
-        full_login_url = html.unescape(m.group(1))
+            # Fallback: Thử tìm trong Header nếu body không có
+            if 'Location' in resp.headers:
+                full_login_url = resp.headers['Location']
+            else:
+                log("❌ Không tìm thấy redirect URL ở Gateway", "ERROR")
+                return None
+        else:
+            full_login_url = html.unescape(m.group(1))
 
         log(f"➡️ Redirect URL: {full_login_url}")
         
-        # BƯỚC 2: Gọi API VerifyUrl
-        # Cần set Referer là cái URL dài ngoằng vừa lấy được thì Server mới chịu trả lời
-        session.headers.update({"Referer": full_login_url})
+        # --- BƯỚC 2: Gọi API VerifyUrl bằng IP Cứng ---
+        # IP thật của v1.awingconnect.vn là 1.52.48.205 (Lấy từ log web của bạn)
+        # Chúng ta PHẢI dùng IP này, vì nếu dùng tên miền, Router sẽ chặn lại.
         
-        log("⚡ Gọi API VerifyUrl để lấy Password...")
-        resp_api = session.post(CONFIG["api_verify_url"], json={}, timeout=5)
+        REAL_SERVER_IP = "1.52.48.205" 
+        API_PATH = "/Home/VerifyUrl"
         
-        if resp_api.status_code != 200:
-            log(f"❌ API Error: {resp_api.status_code}", "ERROR")
+        # URL để request (Dùng IP)
+        target_url = f"http://{REAL_SERVER_IP}{API_PATH}"
+        
+        # Headers giả lập (QUAN TRỌNG: Host phải là tên miền)
+        headers = {
+            "Host": "v1.awingconnect.vn", 
+            "Referer": full_login_url,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Content-Type": "application/json"
+        }
+        
+        log(f"⚡ Gọi API VerifyUrl qua IP {REAL_SERVER_IP}...")
+        
+        # Gọi POST
+        resp_api = session.post(target_url, headers=headers, json={}, timeout=10)
+        
+        # --- BƯỚC 3: Debug và Parse JSON ---
+        log(f"Status Code: {resp_api.status_code}")
+        
+        try:
+            data = resp_api.json()
+            # Nếu chạy đến đây là thành công JSON
+        except Exception as e:
+            # Nếu lỗi ở đây -> Server trả về HTML chứ không phải JSON
+            log(f"❌ Lỗi format JSON! Server trả về: \n{resp_api.text[:200]}...", "ERROR")
             return None
 
-        # BƯỚC 3: Parse JSON lấy Password
-        data = resp_api.json()
-        
-        # Password nằm trong chuỗi HTML tại key ['captiveContext']['contentAuthenForm']
+        # Parse password từ JSON
         html_content = data.get("captiveContext", {}).get("contentAuthenForm", "")
-        
-        # Dùng Regex móc password ra: name="password" value="XXXXXXXX"
         pass_match = re.search(r'name="password"\s+value="([^"]+)"', html_content)
         
         if pass_match:
             extracted_pass = pass_match.group(1)
-            log(f"🔓 Đã trích xuất Password động: {extracted_pass}")
+            log(f"🔓 Đã trích xuất Password: {extracted_pass}")
             return extracted_pass
         else:
-            log("❌ Không tìm thấy pattern password trong JSON trả về.", "ERROR")
+            log("❌ JSON OK nhưng không có password.", "ERROR")
             return None
 
     except Exception as e:
-        log(f"❌ Lỗi khi lấy dynamic password: {e}", "ERROR")
+        log(f"❌ Exception: {e}", "ERROR")
         return None
+    
 
 def perform_login_cycle():
     t_start = time.time()
@@ -111,19 +132,18 @@ def perform_login_cycle():
         session.get(CONFIG["logout_url"], timeout=1)
     except: pass
 
-
-    # 2. Lấy Password động
-    dynamic_password = get_dynamic_password()
-    
-    if not dynamic_password:
-        log("⛔ Không lấy được mật khẩu, hủy login.", "ERROR")
-        return False
+    while True:
+        dynamic_password = get_dynamic_password()
+        
+        if not dynamic_password:
+            log("⛔ Không lấy được mật khẩu, hủy login.", "ERROR")
+            continue
+        break
 
     # 3. Gửi Request Login cuối cùng
     auth_data = {
         "username": CONFIG["username"],
         "password": dynamic_password, # Sử dụng pass vừa lấy
-        "dst": CONFIG["success_check_url"],
         "popup": "false",
     }
 
@@ -131,7 +151,7 @@ def perform_login_cycle():
         # Reset Referer về mặc định hoặc authen
         session.headers.update({"Referer": "http://v1.awingconnect.vn/"})
         
-        resp = session.post(CONFIG["auth_url"], data=auth_data, timeout=5)
+        resp = session.post("http://192.168.200.1/login", data=auth_data, timeout=5)
         
         # Check kết quả (302 redirect hoặc 200 OK trả về trang Success)
         if resp.status_code < 400:
