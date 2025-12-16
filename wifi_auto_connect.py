@@ -21,7 +21,7 @@ CONFIG = {
     # Password sẽ được lấy tự động, không cần hardcode nữa
     
     # URL Flow
-    "trigger_url": "http://authen.awingconnect.vn/login", # Link mồi để lấy redirect
+    "trigger_url": "http://156.156.157.26/login?dst=www.msftconnecttest.com/redirect", # Link mồi để lấy redirect
     "api_verify_url": "http://v1.awingconnect.vn/Home/VerifyUrl", # Link lấy password
     "auth_url": "http://authen.awingconnect.vn/login", # Link login cuối cùng
     "logout_url": "http://192.168.200.1/goform/logout",
@@ -56,7 +56,7 @@ def get_dynamic_password():
         log("🕵️ Đang lấy Session params từ Gateway...")
         
         # Gọi thẳng vào IP Gateway để tránh lỗi DNS
-        resp = session.get("http://192.168.200.1/goform/login", allow_redirects=False, timeout=5)
+        resp = session.get(CONFIG["trigger_url"], allow_redirects=False, timeout=5)
         html_body = resp.content.decode("utf-8", errors="ignore")
 
         # Tìm URL redirect
