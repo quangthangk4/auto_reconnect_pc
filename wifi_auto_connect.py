@@ -21,14 +21,13 @@ CONFIG = {
     # Password sẽ được lấy tự động, không cần hardcode nữa
     
     # URL Flow
-    "trigger_url": "http://156.156.157.26/login?dst=www.msftconnecttest.com/redirect", # Link mồi để lấy redirect
+    "trigger_url": "http://156.156.157.26/login?dst=http%3A%2F%2F192.168.200.1%2F", # Link mồi để lấy redirect
     "api_verify_url": "http://v1.awingconnect.vn/Home/VerifyUrl", # Link lấy password
     "auth_url": "http://authen.awingconnect.vn/login", # Link login cuối cùng
     "logout_url": "http://192.168.200.1/goform/logout",
     "success_check_url": "http://v1.awingconnect.vn/Success",
     
     "session_duration": 15 * 60, # 15 phút
-    "gateway_ip": "192.168.200.1"
 }
 
 # Session toàn cục
@@ -73,16 +72,6 @@ def get_dynamic_password():
 
         log(f"➡️ Redirect URL: {full_login_url}")
         
-        # --- BƯỚC 2: Gọi API VerifyUrl bằng IP Cứng ---
-        # IP thật của v1.awingconnect.vn là 1.52.48.205 (Lấy từ log web của bạn)
-        # Chúng ta PHẢI dùng IP này, vì nếu dùng tên miền, Router sẽ chặn lại.
-        
-        REAL_SERVER_IP = "1.52.48.205" 
-        API_PATH = "/Home/VerifyUrl"
-        
-        # URL để request (Dùng IP)
-        target_url = f"http://{REAL_SERVER_IP}{API_PATH}"
-        
         # Headers giả lập (QUAN TRỌNG: Host phải là tên miền)
         headers = {
             "Host": "v1.awingconnect.vn", 
@@ -91,13 +80,8 @@ def get_dynamic_password():
             "Content-Type": "application/json"
         }
         
-        log(f"⚡ Gọi API VerifyUrl qua IP {REAL_SERVER_IP}...")
-        
         # Gọi POST
-        resp_api = session.post(target_url, headers=headers, json={}, timeout=10)
-        
-        # --- BƯỚC 3: Debug và Parse JSON ---
-        log(f"Status Code: {resp_api.status_code}")
+        resp_api = session.post(CONFIG["api_verify_url"], headers=headers, json={}, timeout=10)
         
         try:
             data = resp_api.json()
@@ -128,9 +112,9 @@ def perform_login_cycle():
     t_start = time.time()
     
     # 1. Logout (Optional nhưng tốt để clean session cũ)
-    try:
-        session.get(CONFIG["logout_url"], timeout=1)
-    except: pass
+    # try:
+    #     session.get(CONFIG["logout_url"], timeout=1)
+    # except: pass
 
     while True:
         dynamic_password = get_dynamic_password()
@@ -144,6 +128,7 @@ def perform_login_cycle():
     auth_data = {
         "username": CONFIG["username"],
         "password": dynamic_password, # Sử dụng pass vừa lấy
+        "dst": CONFIG["success_check_url"],
         "popup": "false",
     }
 
@@ -155,6 +140,7 @@ def perform_login_cycle():
         
         # Check kết quả (302 redirect hoặc 200 OK trả về trang Success)
         if resp.status_code < 400:
+            log(f"tra ve: {resp.status_code}")
             duration = time.time() - t_start
             log(f"🚀 LOGIN THÀNH CÔNG! Tổng thời gian: {duration:.3f}s")
             return True
