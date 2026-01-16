@@ -48,6 +48,11 @@ def log(message, level="INFO"):
             print(log_line)
     except: pass
 
+def logkv(key, value):
+    if sys.stdout and sys.stdout.isatty():
+        sys.stdout.write("\033[F\033[K")
+    log(f"{key}={value}")
+
 def get_dynamic_password():
     try:
         # --- BƯỚC 1: Lấy Redirect URL từ Gateway ---
@@ -180,36 +185,45 @@ def perform_login_cycle():
 
 def check_internet():
     try:
-        # Kiểm tra kết nối đến Google DNS (8.8.8.8) cổng 53
-        socket.create_connection(("8.8.8.8", 53), timeout=3)
-        return True
-    except OSError:
+        # Sử dụng URL chuyên dụng để check internet (trả về code 204 nếu có mạng)
+        # http://www.google.com/generate_204 hoặc http://connectivitycheck.gstatic.com/generate_204
+        response = requests.get("http://www.google.com/generate_204", timeout=3)
+        
+        # Nếu trả về 204 No Content -> Có internet thực sự
+        if response.status_code == 204:
+            return True
+        # Nếu status 200 nhưng bị redirect về trang đăng nhập -> Mất mạng/Cần login
+        return False
+    except:
         return False
 
 def main():
     # Login lần đầu khi chạy script
-    perform_login_cycle()
+    # perform_login_cycle()
 
     while True:
         try:
             # Thời gian ngủ "an toàn" (14 phút)
-            sleep_time = 840 
+            # sleep_time = 840 
             
-            wake_up_time = datetime.fromtimestamp(time.time() + sleep_time).strftime('%H:%M:%S')
-            log(f"💤 WiFi OK. Ngủ đông đến {wake_up_time} (còn {sleep_time}s)...")
-            log(f"="*50)
+            # wake_up_time = datetime.fromtimestamp(time.time() + sleep_time).strftime('%H:%M:%S')
+            # log(f"💤 WiFi OK. Ngủ đông đến {wake_up_time} (còn {sleep_time}s)...")
+            # log(f"="*50)
             
-            time.sleep(sleep_time)
+            # time.sleep(sleep_time)
             
-            log("👀 Hết thời gian ngủ đông, bắt đầu theo dõi kết nối mạng liên tục...")
+            # log("👀 Hết thời gian ngủ đông, bắt đầu theo dõi kết nối mạng liên tục...")
             
             # Vòng lặp check mạng liên tục
             while True:
                 if check_internet():
+                    logkv("heartbeat", "alive")
                     # Vẫn có mạng, check lại sau 1s để phản ứng nhanh nhất có thể
+                    
                     time.sleep(1)
                 else:
                     # Mất mạng -> Login lại ngay
+                    logkv("heartbeat", "dead")
                     log("⚠️ Phát hiện mất kết nối Internet! Đang login lại...", "WARNING")
                     if perform_login_cycle():
                         # Nếu login thành công, thoát vòng lặp check để quay lại ngủ 840s
