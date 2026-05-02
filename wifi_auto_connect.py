@@ -5,238 +5,186 @@ Cơ chế: Dynamic Password Harvesting (Tự động lấy mật khẩu động 
 """
 
 import requests
+from requests.adapters import HTTPAdapter
 import time
-import subprocess
 import re
-import socket
-from datetime import datetime
-import ipaddress
-import os,html
 import sys
+from urllib.parse import urlencode
+from datetime import datetime
 
 # ============ CẤU HÌNH ============
 CONFIG = {
-    # Username này thường cố định theo thiết bị/account
-    "username": "awing15-15", 
-    # Password sẽ được lấy tự động, không cần hardcode nữa
-    
-    # URL Flow
-    "trigger_url": "http://192.168.200.1/login", # Link mồi để lấy redirect
-    "api_verify_url": "http://v1.awingconnect.vn/Home/VerifyUrl", # Link lấy password
-    "auth_url": "http://authen.awingconnect.vn/login", # Link login cuối cùng
-    "logout_url": "http://192.168.200.1/goform/logout",
-    "success_check_url": "http://v1.awingconnect.vn/Success",
-    
-    "session_duration": 15 * 60, # 15 phút
+    "username":       "awing15-15",
+    "gateway_url":    "http://192.168.200.1/login",
+    "api_verify_url": "http://v1.awingconnect.vn/Home/VerifyUrl",
+    "check_url":      "http://www.google.com/generate_204",
 }
 
 # Session toàn cục
 session = requests.Session()
 session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Connection": "keep-alive",
-    "Host":"authen.awingconnect.vn",
-    "X-Requested-With": "XMLHttpRequest", # Quan trọng để giả lập gọi API từ JS
-    "Accept": "*/*"
+    "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Connection":      "keep-alive",
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept":          "*/*",
 })
 
-def log(message, level="INFO"):
-    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    log_line = f"[{timestamp}] [{level}] {message}"
-    try:
-        if sys.stdout and sys.stdout.isatty():
-            print(log_line)
-    except: pass
+def ts():
+    return datetime.now().strftime("%H:%M:%S")
+
+def log(msg):
+    print(f"[{ts()}] {msg}")
 
 def logkv(key, value):
-    if sys.stdout and sys.stdout.isatty():
-        sys.stdout.write("\033[F\033[K")
-    log(f"{key}={value}")
+    sys.stdout.write(f"\r[{ts()}] {key}: {value}        ")
+    sys.stdout.flush()
 
 def get_dynamic_password():
-    try:
-        # --- BƯỚC 1: Lấy Redirect URL từ Gateway ---
-        # Gateway IP: 192.168.200.1
-        log("🕵️ Đang lấy Session params từ Gateway...")
-        
-        # Gọi thẳng vào IP Gateway để tránh lỗi DNS
-        resp = session.get("http://192.168.200.1/login", allow_redirects=False, timeout=5)
-        html_body = resp.content.decode("utf-8", errors="ignore")
-        log(f"test: {html_body}")
+    # Step 1: Lấy CHAP params từ gateway
+    log("  [1/3] GET gateway login page...")
+    t1 = time.time()
+    resp = session.get(CONFIG["gateway_url"], allow_redirects=False, timeout=5)
+    html_body = resp.content.decode("utf-8", errors="ignore")
 
-        # Tìm các tham số hidden trong form
-        serial_match = re.search(r'id="serial" value="([^"]*)"', html_body)
-        client_mac_match = re.search(r'id="client_mac" value="([^"]*)"', html_body)
-        client_ip_match = re.search(r'id="client_ip" value="([^"]*)"', html_body)
-        login_url_match = re.search(r'id="login_url" value="([^"]*)"', html_body)
-        chap_id_match = re.search(r'id="chap-id" value="([^"]*)"', html_body)
-        chap_challenge_match = re.search(r'id="chap-challenge" value="([^"]*)"', html_body)
+    serial         = re.search(r'id="serial" value="([^"]*)"', html_body)
+    client_mac     = re.search(r'id="client_mac" value="([^"]*)"', html_body)
+    client_ip      = re.search(r'id="client_ip" value="([^"]*)"', html_body)
+    login_url      = re.search(r'id="login_url" value="([^"]*)"', html_body)
+    chap_id        = re.search(r'id="chap-id" value="([^"]*)"', html_body)
+    chap_challenge = re.search(r'id="chap-challenge" value="([^"]*)"', html_body)
 
-        if serial_match and client_mac_match and client_ip_match and chap_id_match and chap_challenge_match:
-            serial = serial_match.group(1)
-            client_mac = client_mac_match.group(1)
-            client_ip = client_ip_match.group(1)
-            login_url_gw = login_url_match.group(1) if login_url_match else "http://192.168.200.1/login"
-            chap_id = chap_id_match.group(1)
-            chap_challenge = chap_challenge_match.group(1)
-            
-            # Xây dựng URL thủ công theo yêu cầu
-            # Lưu ý: Các giá trị chap cần được encode đúng cách nếu dùng thư viện, 
-            # nhưng ở đây ta ghép chuỗi để giống format yêu cầu (giữ nguyên các ký tự escape nếu có trong value html)
-            
-            # Sử dụng urllib để encode các tham số an toàn
-            from urllib.parse import urlencode
-            
-            params = {
-                "serial": serial,
-                "client_mac": client_mac,
-                "client_ip": client_ip,
-                "userurl": "",
-                "login_url": login_url_gw,
-                "chap_id": chap_id,
-                "chap_challenge": chap_challenge
-            }
-            
-            base_url = "http://v1.awingconnect.vn/login"
-            full_login_url = f"{base_url}?{urlencode(params)}"
-            
-            log(f"✅ Đã tạo URL Login thủ công: {full_login_url}")
-            
-        else:
-            log("❌ Không tìm thấy đủ thông tin (serial, mac, ip, chap...) để tạo URL", "ERROR")
-            return None
-
-        log(f"➡️ Redirect URL: {full_login_url}")
-        
-        # Headers giả lập (QUAN TRỌNG: Host phải là tên miền)
-        headers = {
-            "Host": "v1.awingconnect.vn", 
-            "Referer": full_login_url,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Content-Type": "application/json"
-        }
-        
-        # Gọi POST
-        resp_api = session.post(CONFIG["api_verify_url"], headers=headers, json={}, timeout=10)
-        
-        try:
-            data = resp_api.json()
-            # Nếu chạy đến đây là thành công JSON
-        except Exception as e:
-            # Nếu lỗi ở đây -> Server trả về HTML chứ không phải JSON
-            log(f"❌ Lỗi format JSON! Server trả về: \n{resp_api.text[:200]}...", "ERROR")
-            return None
-
-        # Parse password từ JSON
-        html_content = data.get("captiveContext", {}).get("contentAuthenForm", "")
-        pass_match = re.search(r'name="password"\s+value="([^"]+)"', html_content)
-        
-        if pass_match:
-            extracted_pass = pass_match.group(1)
-            log(f"🔓 Đã trích xuất Password: {extracted_pass}")
-            return extracted_pass
-        else:
-            log("❌ JSON OK nhưng không có password.", "ERROR")
-            return None
-
-    except Exception as e:
-        log(f"❌ Exception: {e}", "ERROR")
+    if not (serial and client_mac and client_ip and chap_id and chap_challenge):
+        log("  [1/3] ❌ Không parse được CHAP params")
         return None
-    
+
+    params = {
+        "serial":         serial.group(1),
+        "client_mac":     client_mac.group(1),
+        "client_ip":      client_ip.group(1),
+        "userurl":        "",
+        "login_url":      login_url.group(1) if login_url else CONFIG["gateway_url"],
+        "chap_id":        chap_id.group(1),
+        "chap_challenge": chap_challenge.group(1),
+    }
+    full_login_url = f"http://v1.awingconnect.vn/login?{urlencode(params)}"
+    log(f"  [1/3] ✅ CHAP params OK ({(time.time()-t1)*1000:.0f}ms)")
+
+    # Step 2: Lấy dynamic password từ VerifyUrl
+    log("  [2/3] POST VerifyUrl...")
+    t2 = time.time()
+    resp_api = session.post(
+        CONFIG["api_verify_url"],
+        headers={
+            "Host":         "v1.awingconnect.vn",
+            "Referer":      full_login_url,
+            "Content-Type": "application/json",
+        },
+        json={},
+        timeout=10,
+    )
+
+    try:
+        data = resp_api.json()
+    except Exception:
+        log(f"  [2/3] ❌ Response không phải JSON: {resp_api.text[:100]}")
+        return None
+
+    html_content = data.get("captiveContext", {}).get("contentAuthenForm", "")
+    pass_match = re.search(r'name="password"\s+value="([^"]+)"', html_content)
+
+    if not pass_match:
+        log("  [2/3] ❌ Không tìm thấy password trong JSON")
+        return None
+
+    log(f"  [2/3] ✅ Password OK ({(time.time()-t2)*1000:.0f}ms)")
+    return pass_match.group(1)
+
 
 def perform_login_cycle():
     t_start = time.time()
-    
-    # 1. Logout (Optional nhưng tốt để clean session cũ)
-    # try:
-    #     session.get(CONFIG["logout_url"], timeout=1)
-    # except: pass
-
-    dynamic_password = get_dynamic_password()
-    
-    if not dynamic_password:
-        log("⛔ Không lấy được mật khẩu, hủy login.", "ERROR")
-        return False
-
-    # 3. Gửi Request Login cuối cùng
-    auth_data = {
-        "username": "awing15-15",
-        "password": dynamic_password, # Sử dụng pass vừa lấy
-        "dst": "http://v1.awingconnect.vn/Success",
-        "popup": "false",
-    }
+    log(">>> Bắt đầu login cycle")
+    # Clear connection pool — tránh reuse TCP connection cũ đã chết sau khi WiFi drop
+    session.mount("http://", HTTPAdapter())
 
     try:
-        resp = session.post("http://192.168.200.1/login", data=auth_data, timeout=5)
-        
-        # Check kết quả (302 redirect hoặc 200 OK trả về trang Success)
-        if resp.status_code < 400:
-            log(f"tra ve: {resp.status_code}")
-            duration = time.time() - t_start
-            log(f"🚀 LOGIN THÀNH CÔNG! Tổng thời gian: {duration:.3f}s")
-            return True
-        else:
-            log(f"❌ Login thất bại. HTTP Code: {resp.status_code}", "ERROR")
-            return False
-
+        password = get_dynamic_password()
     except Exception as e:
-        log(f"❌ Exception Login: {e}", "ERROR")
+        log(f"  ❌ Exception lấy password: {e}")
         return False
+
+    if not password:
+        log("  ❌ Hủy login — không lấy được password")
+        return False
+
+    # Step 3: POST login về gateway
+    log("  [3/3] POST login gateway...")
+    t3 = time.time()
+    try:
+        resp = session.post(
+            CONFIG["gateway_url"],
+            data={
+                "username": CONFIG["username"],
+                "password": password,
+                "dst":      "http://v1.awingconnect.vn/Success",
+                "popup":    "false",
+            },
+            timeout=5,
+        )
+    except Exception as e:
+        log(f"  [3/3] ❌ Exception: {e}")
+        return False
+
+    duration = time.time() - t_start
+    if resp.status_code < 400:
+        log(f"  [3/3] ✅ Login OK ({(time.time()-t3)*1000:.0f}ms)")
+        log(f">>> ✅ HOÀN THÀNH — tổng {duration*1000:.0f}ms")
+        return True
+    else:
+        log(f"  [3/3] ❌ Gateway trả HTTP {resp.status_code}")
+        return False
+
 
 def check_internet():
     try:
-        # Sử dụng URL chuyên dụng để check internet (trả về code 204 nếu có mạng)
-        # http://www.google.com/generate_204 hoặc http://connectivitycheck.gstatic.com/generate_204
-        response = requests.get("http://www.google.com/generate_204", timeout=3)
-        
-        # Nếu trả về 204 No Content -> Có internet thực sự
-        if response.status_code == 204:
-            return True
-        # Nếu status 200 nhưng bị redirect về trang đăng nhập -> Mất mạng/Cần login
-        return False
+        r = requests.get(CONFIG["check_url"], timeout=3)
+        return r.status_code == 204
     except:
         return False
 
-def main():
-    # Login lần đầu khi chạy script
-    # perform_login_cycle()
 
+def main():
+    log("=== WiFi Auto-Reconnect started ===")
     while True:
         try:
-            # Thời gian ngủ "an toàn" (14 phút)
-            # sleep_time = 840 
-            
-            # wake_up_time = datetime.fromtimestamp(time.time() + sleep_time).strftime('%H:%M:%S')
-            # log(f"💤 WiFi OK. Ngủ đông đến {wake_up_time} (còn {sleep_time}s)...")
-            # log(f"="*50)
-            
-            # time.sleep(sleep_time)
-            
-            # log("👀 Hết thời gian ngủ đông, bắt đầu theo dõi kết nối mạng liên tục...")
-            
-            # Vòng lặp check mạng liên tục
+            t_lost = None
             while True:
                 if check_internet():
+                    if t_lost is not None:
+                        # Vừa có lại mạng — tính tổng downtime
+                        downtime = time.time() - t_lost
+                        log(f"🌐 Có mạng lại — downtime: {downtime:.1f}s")
+                        t_lost = None
                     logkv("heartbeat", "alive")
-                    # Vẫn có mạng, check lại sau 1s để phản ứng nhanh nhất có thể
-                    
                     time.sleep(1)
                 else:
-                    # Mất mạng -> Login lại ngay
-                    logkv("heartbeat", "dead")
-                    log("⚠️ Phát hiện mất kết nối Internet! Đang login lại...", "WARNING")
+                    if t_lost is None:
+                        t_lost = time.time()  # ghi nhận thời điểm mất mạng
+                    print()  # xuống dòng sau logkv
+                    log("⚠️  Mất kết nối! Đang login lại...")
                     if perform_login_cycle():
-                        # Nếu login thành công, thoát vòng lặp check để quay lại ngủ 840s
                         break
                     else:
-                        # Login thất bại, chờ 5s rồi thử lại (vẫn giữ trạng thái check)
+                        log("⏳ Thử lại sau 5s...")
                         time.sleep(5)
-            
+
         except KeyboardInterrupt:
+            print()
+            log("=== Dừng ===")
             break
         except Exception as e:
-            log(f"Crash loop: {e}", "ERROR")
+            log(f"❌ Crash: {e}")
             time.sleep(5)
+
 
 if __name__ == "__main__":
     main()
