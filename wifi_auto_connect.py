@@ -41,10 +41,23 @@ def logkv(key, value):
 
 def get_dynamic_password():
     # Step 1: Lấy CHAP params từ gateway
+    # Dùng timeout ngắn (1.5s connect, 2s read) + retry nhanh để tránh chờ TCP retransmit (~3-5s)
     log("  [1/3] GET gateway login page...")
     t1 = time.time()
-    resp = session.get(CONFIG["gateway_url"], allow_redirects=False, timeout=5)
-    html_body = resp.content.decode("utf-8", errors="ignore")
+    html_body = None
+    for attempt in range(6):
+        try:
+            session.mount("http://", HTTPAdapter())  # fresh TCP mỗi lần thử
+            resp = session.get(CONFIG["gateway_url"], allow_redirects=False, timeout=(1.5, 2))
+            html_body = resp.content.decode("utf-8", errors="ignore")
+            break
+        except Exception:
+            if attempt < 5:
+                time.sleep(0.3)
+
+    if html_body is None:
+        log(f"  [1/3] ❌ Gateway không phản hồi sau 6 lần thử ({(time.time()-t1)*1000:.0f}ms)")
+        return None
 
     serial         = re.search(r'id="serial" value="([^"]*)"', html_body)
     client_mac     = re.search(r'id="client_mac" value="([^"]*)"', html_body)
@@ -154,9 +167,9 @@ def check_internet():
 
 def main():
     log("=== WiFi Auto-Reconnect started ===")
+    t_lost = None
     while True:
         try:
-            t_lost = None
             while True:
                 if check_internet():
                     if t_lost is not None:
