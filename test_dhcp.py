@@ -69,28 +69,31 @@ def renew_dhcp():
 
 # ── Login steps ───────────────────────────────────────────────────────────────
 
-def get_gateway_html():
-    """GET 192.168.200.1/login, trả về (html_body, elapsed_ms) hoặc (None, elapsed_ms)."""
-    session.mount("http://", HTTPAdapter())
-    t = time.time()
-    try:
-        resp = session.get(CONFIG["gateway_url"], allow_redirects=False, timeout=(5, 5))
-        return resp.content.decode("utf-8", errors="ignore"), (time.time() - t) * 1000
-    except Exception as e:
-        return None, (time.time() - t) * 1000
 
 def get_dynamic_password_with_dhcp():
-    """Step 1: DHCP renew trước, rồi GET gateway."""
-    log("  [1/3] DHCP renew trước khi kết nối...")
+    """Step 1: DHCP renew trước, rồi retry loop ngắn."""
+    log("  [1/3] DHCP renew...")
     renew_dhcp()
 
-    log("  [1/3] GET gateway login page (sau DHCP renew)...")
+    log("  [1/3] GET gateway login page...")
     t1 = time.time()
-    html_body, ms = get_gateway_html()
+    html_body = None
+    for attempt in range(6):
+        session.mount("http://", HTTPAdapter())
+        try:
+            resp = session.get(CONFIG["gateway_url"], allow_redirects=False, timeout=(1.5, 2))
+            html_body = resp.content.decode("utf-8", errors="ignore")
+            if attempt > 0:
+                log(f"  [1/3] Thành công ở lần thử {attempt + 1}")
+            break
+        except Exception:
+            if attempt < 5:
+                time.sleep(0.3)
+
     if not html_body:
-        log(f"  [1/3] ❌ Gateway không phản hồi ({ms:.0f}ms)")
+        log(f"  [1/3] ❌ Gateway không phản hồi sau 6 lần thử ({(time.time()-t1)*1000:.0f}ms)")
         return None
-    log(f"  [1/3] ✅ CHAP params — gateway response: {ms:.0f}ms | tổng step: {(time.time()-t1)*1000:.0f}ms")
+    log(f"  [1/3] ✅ CHAP params OK ({(time.time()-t1)*1000:.0f}ms)")
     return _parse_and_get_password(html_body)
 
 def get_dynamic_password_with_retry():
