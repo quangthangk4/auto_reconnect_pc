@@ -9,6 +9,7 @@ from requests.adapters import HTTPAdapter
 import time
 import re
 import sys
+import socket
 from urllib.parse import urlencode
 from datetime import datetime
 
@@ -157,11 +158,35 @@ def perform_login_cycle():
         return False
 
 
+# Cache IP để tránh DNS lookup khi mất kết nối
+CACHED_CHECK_IP = None
+
+def get_check_ip():
+    global CACHED_CHECK_IP
+    if CACHED_CHECK_IP is None:
+        try:
+            CACHED_CHECK_IP = socket.gethostbyname("www.google.com")
+        except Exception:
+            pass
+    return CACHED_CHECK_IP
+
+
 def check_internet():
+    ip = get_check_ip()
+    if ip:
+        url = f"http://{ip}/generate_204"
+        headers = {"Host": "www.google.com"}
+    else:
+        url = CONFIG["check_url"]
+        headers = {}
+
     try:
-        r = requests.get(CONFIG["check_url"], timeout=3)
+        r = requests.get(url, headers=headers, timeout=3)
         return r.status_code == 204
-    except:
+    except Exception:
+        # Nếu mất mạng, xóa cache IP để đảm bảo phân giải mới khi kết nối lại
+        global CACHED_CHECK_IP
+        CACHED_CHECK_IP = None
         return False
 
 
